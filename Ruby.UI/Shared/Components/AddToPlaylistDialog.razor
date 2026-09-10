@@ -1,0 +1,123 @@
+@using Ruby.Shared.DTO.PlaylistDTO
+@using Ruby.UI.Services.Api
+@inject IPlaylistApi PlaylistApi
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h4" Style="font-weight: 800;">Add to playlist</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (isLoading)
+        {
+            <div class="d-flex justify-center pa-4">
+                <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+            </div>
+        }
+        else
+        {
+            <MudList T="PlaylistShortDTO" Clickable="true" Class="pa-0" Style="max-height: 400px; overflow-y: auto;">
+                
+                <MudListItem OnClick="OpenCreateDialog" Class="px-2 py-2">
+                    <div class="d-flex align-center gap-3" style="color: var(--mud-palette-primary);">
+                        <div class="d-flex align-center justify-center rounded" style="width: 40px; height: 40px; background-color: rgba(var(--mud-palette-primary-rgb), 0.1);">
+                            <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Medium" />
+                        </div>
+                        <MudText Typo="Typo.body1" Style="font-weight: 800;">Create new playlist</MudText>
+                    </div>
+                </MudListItem>
+
+                <MudDivider Class="my-2" />
+
+                @if (!playlists.Any())
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="pa-4 text-center" Style="font-weight: 800;">
+                        You don't have any playlists yet. Create a playlist in your library.
+                    </MudText>
+                }
+                else
+                {
+                    @foreach (var playlist in playlists)
+                    {
+                        <MudListItem OnClick="@(() => AddToSelectedPlaylist(playlist.Id))" Class="px-2 py-2">
+                            <div class="d-flex align-center gap-3">
+                                <MudImage Src="@(playlist.CoverImageUrl ?? "https://via.placeholder.com/40")"
+                                Width="40" Height="40" ObjectFit="ObjectFit.Cover" Class="rounded" />
+                                <div class="d-flex flex-column">
+                                    <MudText Typo="Typo.body1" Style="font-weight: 600;">@playlist.Title</MudText>
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@playlist.TracksCount tracks</MudText>
+                                </div>
+                            </div>
+                        </MudListItem>
+                    }
+                }
+            </MudList>
+        }
+    </DialogContent>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = null!;
+    
+    [Parameter] public Guid TrackId { get; set; }
+    [Parameter] public List<Guid>? BulkTrackIds { get; set; }
+
+    private List<PlaylistShortDTO> playlists = new();
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            playlists = await PlaylistApi.GetMyCreatedPlaylistsAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Error loading playlists", Severity.Error);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task AddToSelectedPlaylist(Guid playlistId)
+    {
+        try
+        {
+            if (BulkTrackIds != null && BulkTrackIds.Any())
+            {
+                foreach (var id in BulkTrackIds)
+                {
+                    await PlaylistApi.AddTrackAsync(playlistId, id);
+                }
+                Snackbar.Add($"Successfully added {BulkTrackIds.Count} tracks!", Severity.Success);
+            }
+            else
+            {
+                await PlaylistApi.AddTrackAsync(playlistId, TrackId);
+                Snackbar.Add("Successfully added track to playlist!", Severity.Success);
+            }
+            
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Error adding track to playlist", Severity.Error);
+        }
+    }
+
+    private async Task OpenCreateDialog()
+    {
+        var options = new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true };
+        
+        var dialog = await DialogService.ShowAsync<CreatePlaylistDialog>("", options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled && result.Data is PlaylistResponseDTO newPlaylist)
+        {
+            await AddToSelectedPlaylist(newPlaylist.Id);
+        }
+    }
+}

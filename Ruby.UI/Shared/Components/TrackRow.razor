@@ -1,0 +1,254 @@
+@using Ruby.Shared.DTO.TrackDTO
+@using Ruby.UI.Services
+@using Ruby.UI.Services.Api
+@using Ruby.Shared.DTO.LikesDTO
+@inject IDialogService DialogService
+@inject AudioPlayerService Player
+@inject ITrackApi TrackApi
+@implements IDisposable
+
+<div class="track-row w-100 d-flex align-center pa-2 pa-sm-3 rounded cursor-pointer transition-background gap-2 gap-sm-4">
+    
+    <div class="d-none d-sm-flex align-center justify-center flex-shrink-0" style="width: 32px;">
+        <MudText Typo="Typo.body1" Style="color: #a0a0a0; font-weight: 800;">
+            @TrackNumber
+        </MudText>
+    </div>
+
+    <div class="row-image-container rounded " @onclick:stopPropagation="true" style="width: clamp(56px, 8vw, 84px); height: clamp(56px, 8vw, 84px); min-width: clamp(56px, 8vw, 84px); flex-shrink: 0; position: relative; overflow: hidden;">
+        
+        <MudImage Src="@CoverUrl" Alt="Cover" ObjectFit="ObjectFit.Cover" Style="width: 100%; height: 100%;" />
+        
+        <div class="row-play-overlay rounded d-flex align-center justify-center">
+            <MudIconButton Icon="@Icons.Material.Filled.PlayArrow"
+                           Color="Color.Primary"
+                           Variant="Variant.Filled"
+                           Class="play-btn-circle shadow-lg"
+                           OnClick="TogglePlayAsync" />
+        </div>
+    </div>
+
+    <div class="d-flex flex-column justify-center flex-grow-1" style="min-width: 0; overflow: hidden;">
+        <MudText Typo="Typo.body1" Class="mud-text-truncate font-weight-bold" Style="color: #e0e0e0; line-height: 1.2; font-weight: 800;">
+            @TrackTitle
+        </MudText>
+        <MudLink Href="@($"/profile/{Track.Author.Id}")"
+                 Typo="Typo.body2"
+                 Underline="Underline.Hover"
+                 Color="Color.Secondary"
+                 Style="color: gray; font-weight: 800; display: block; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            @AuthorName
+        </MudLink>
+    </div>
+
+    <div class="d-flex align-center gap-2 flex-shrink-0">
+        
+        <div @onclick:stopPropagation="true">
+            <MudIconButton Icon="@(Track?.IsLikedByCurrentUser == true ? Icons.Material.Filled.Favorite : Icons.Material.Filled.FavoriteBorder)"
+                           Color="@(Track?.IsLikedByCurrentUser == true ? Color.Primary : Color.Default)"
+                           Size="Size.Large"
+                           Class="track-action-btn"
+                           OnClick="ToggleLikeAsync" />
+        </div>
+
+        <div class="d-flex justify-center" style="width: 48px;">
+            <MudText Typo="Typo.body1" Style="color: #a0a0a0; font-weight: 800;">
+                @FormattedDuration
+            </MudText>
+        </div>
+
+        <div class="track-action-btn" @onclick:stopPropagation="true">
+            <MudMenu Icon="@Icons.Material.Filled.MoreVert"
+                     Size="Size.Medium"
+                     AnchorOrigin="Origin.BottomRight"
+                     TransformOrigin="Origin.TopRight"
+                     Color="Color.Secondary">
+                <MudMenuItem Icon="@Icons.Material.Filled.PlaylistAdd" OnClick="OpenAddToPlaylistDialog" >
+                    <MudText Style="font-weight: 800;">Add to playlist</MudText>
+                </MudMenuItem>
+            </MudMenu>
+        </div>
+
+        @if (AdditionalActions != null)
+        {
+            <div class="row-additional-actions" @onclick:stopPropagation="true">
+                @AdditionalActions
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int TrackNumber { get; set; }
+
+    [Parameter]
+    public TrackShortResponseDTO? Track { get; set; }
+
+    [Parameter]
+    public List<TrackShortResponseDTO>? Queue { get; set; }
+
+    [Parameter]
+    public int Index { get; set; }
+
+    [Parameter]
+    public RenderFragment? AdditionalActions { get; set; }
+
+    private string CoverUrl => Track?.CoverImageUrl ?? "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?q=80&w=150&auto=format&fit=crop";
+    private string TrackTitle => Track?.Title ?? "Unknown Track Title";
+    private string AuthorName => Track?.Author?.Username ?? "Unknown Artist";
+    private bool IsLiked => Track?.IsLikedByCurrentUser ?? false;
+
+    protected override void OnInitialized()
+    {
+        Player.OnStateChanged += SafeStateHasChanged;
+    }
+
+    private void SafeStateHasChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Player.OnStateChanged -= SafeStateHasChanged;
+    }
+
+    private bool IsCurrentTrackPlaying =>
+        Player.CurrentTrack?.Id == Track?.Id && Player.IsPlaying;
+
+     
+    private async Task TogglePlayAsync()
+    {
+        if (Track == null) return;
+
+        if (Player.CurrentTrack?.Id == Track.Id)
+        {
+            await Player.TogglePlayPause();
+        }
+        else
+        {
+            if (Queue != null && Queue.Any())
+            {
+                await Player.PlayPlaylistAsync(Queue, Index);
+            }
+            else
+            {
+                await Player.PlayTrackAsync(Track);
+            }
+        }
+    }
+
+    private string FormattedDuration
+    {
+        get
+        {
+            int totalSeconds = Track?.DurationSeconds ?? 214; // Фейк: 3:34
+            return TimeSpan.FromSeconds(totalSeconds).ToString(@"m\:ss");
+        }
+    }
+
+    private async Task OpenAddToPlaylistDialog()
+    {
+        if (Track == null) return;
+
+        var parameters = new DialogParameters<AddToPlaylistDialog>
+        {
+            { x => x.TrackId, Track.Id }
+        };
+
+        var options = new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.ExtraSmall, FullWidth = true };
+        
+        await DialogService.ShowAsync<AddToPlaylistDialog>("Добавить в плейлист", parameters, options);
+    }
+
+    
+    private async Task ToggleLikeAsync()
+    {
+        if (Track == null) return;
+
+        try
+        {
+            await TrackApi.ToggleLikeAsync(new ToggleLikeRequestDTO { TrackId = Track.Id });
+
+            Track.IsLikedByCurrentUser = !Track.IsLikedByCurrentUser;
+
+            if (Player.CurrentTrack?.Id == Track.Id)
+            {
+                Player.CurrentTrack.IsLikedByCurrentUser = Track.IsLikedByCurrentUser;
+            }
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка при лайке: {ex.Message}");
+        }
+    }
+}
+
+
+<style>
+    .track-row {
+        transition: background-color 0.2s ease;
+    }
+
+        .track-row:hover {
+            background-color: rgba(255, 255, 255, 0.08);
+        }
+
+    .row-play-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.4); 
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        z-index: 1; 
+    }
+
+    .play-btn-circle {
+        background-color: #9b0000 !important; 
+        width: 44px !important; 
+        height: 44px !important;
+        border-radius: 50% !important;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+        transform: translateY(10px); 
+        opacity: 0 !important; 
+        transition: all 0.3s cubic-bezier(0.3, 0, 0, 1) !important; 
+        z-index: 2; 
+    }
+
+    .track-row:hover .row-play-overlay {
+        opacity: 1;
+    }
+
+    .track-row:hover .play-btn-circle {
+        transform: translateY(0);
+        opacity: 1 !important; 
+    }
+
+    .track-action-btn {
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+
+    .track-row:hover .track-action-btn {
+        opacity: 1;
+    }
+
+    .row-additional-actions {
+        width: 48px; 
+        display: flex;
+        justify-content: center;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+
+    .track-row:hover .row-additional-actions {
+        opacity: 1;
+    }
+
+</style>

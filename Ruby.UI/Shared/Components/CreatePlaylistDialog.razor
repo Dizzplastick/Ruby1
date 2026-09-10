@@ -1,0 +1,130 @@
+@using Ruby.Shared.DTO.PlaylistDTO
+@using Ruby.Shared.DTO.LinksDTO
+@using Ruby.UI.Services.Api
+@using Ruby.Shared.Enums
+@inject IPlaylistApi PlaylistApi
+@inject IStorageApi StorageApi
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h4" Style="font-weight: 800;">Create Playlist</MudText>
+    </TitleContent>
+    <DialogContent>
+        <div class="d-flex flex-column gap-3 pt-2">
+
+            <div class="d-flex justify-center">
+                <MudFileUpload T="IBrowserFile" Accept=".jpg, .png, .jpeg" FilesChanged="OnImageFileSelected">
+                    <ActivatorContent>
+                        <MudBadge Overlap="true" Content="@("Update")" Color="Color.Primary" Class="cursor-pointer">
+                            <MudImage Src="@previewUrl" Width="150" Height="150" ObjectFit="ObjectFit.Cover"
+                                      Class="rounded-lg border-2 border-dashed" Style="border-color: gray; background-color: rgba(255,255,255,0.05);" />
+                        </MudBadge>
+                    </ActivatorContent>
+                </MudFileUpload>
+            </div>
+
+            <MudTextField @bind-Value="model.Title" Label="Playlist Title" Variant="Variant.Outlined" FullWidth AutoFocus="true" />
+            
+            <MudSwitch @bind-Value="model.IsPrivate" Color="Color.Primary" Label="Make Private" />
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="isCreating">
+            <b>Cancel</b>
+        </MudButton>
+        <MudButton Color="Color.Primary" OnClick="Submit" Disabled="isCreating || string.IsNullOrWhiteSpace(model.Title)">
+            @if (isCreating)
+            {
+                <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
+                <MudText Class="ms-2">Creating...</MudText>
+            }
+            else
+            {
+                <MudText Style="font-weight: 800;">CREATE</MudText>
+            }
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = null!;
+    
+    private CreatePlaylistRequestDTO model = new();
+    private IBrowserFile? imageFile;
+    private string previewUrl = "https://via.placeholder.com/120?text=Cover"; // Заглушка по умолчанию
+    private bool isCreating;
+    private string statusMessage = "Creating...";
+
+    private async Task OnImageFileSelected(IBrowserFile file)
+    {
+        if (file == null) return;
+        imageFile = file;
+        
+        var buffer = new byte[file.Size];
+        await file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024).ReadAsync(buffer);
+        previewUrl = $"data:{file.ContentType};base64,{Convert.ToBase64String(buffer)}";
+    }
+
+    private async Task Submit()
+    {
+        if (string.IsNullOrWhiteSpace(model.Title)) return;
+        
+        isCreating = true;
+        try
+        {
+            if (imageFile != null)
+            {
+                statusMessage = "Uploading cover...";
+                StateHasChanged(); 
+
+                var imageRequest = new GenerateUploadLinkRequestDTO
+                {
+                    FileName = imageFile.Name,
+                    FileSize = imageFile.Size,
+                    FileType = UploadFileTypeEnum.TrackCover, 
+                };
+                
+                var imageUrlData = await StorageApi.GenerateUploadLinkAsync(imageRequest);
+                
+                await UploadBrowserFileToS3(imageUrlData.PresignedUrl, imageFile, imageFile.ContentType);
+                
+                model.CoverImageKey = imageUrlData.FileKey;
+            }
+
+            statusMessage = "Saving...";
+            StateHasChanged();
+
+            var newPlaylist = await PlaylistApi.CreatePlaylistAsync(model);
+            
+            Snackbar.Add($"Playlist «{newPlaylist.Title}» successfully created!", Severity.Success);
+            
+            MudDialog.Close(DialogResult.Ok(newPlaylist));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+    private async Task UploadBrowserFileToS3(string url, IBrowserFile file, string contentType)
+    {
+        using var client = new HttpClient();
+        var content = new StreamContent(file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024));
+        
+        content.Headers.ContentLength = file.Size;
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+        
+        var response = await client.PutAsync(url, content);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorXml = await response.Content.ReadAsStringAsync();
+            throw new HttpRequestException($"S3 request rejected. Status code: {response.StatusCode}. Details: {errorXml}");
+        }
+    }
+}

@@ -1,0 +1,118 @@
+@page "/search/{Query}"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using Ruby.Shared.DTO.TrackDTO
+@using Ruby.Shared.DTO.PlaylistDTO
+@using Ruby.UI.Services.Api
+@using Ruby.UI.Shared.Components
+@inject ITrackApi TrackApi
+@inject IPlaylistApi PlaylistApi
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.False" Class="mt-8 pb-16 px-4 px-md-8">
+    <MudText Typo="Typo.h4" Class="mb-6 font-weight-black" Style="color: white; font-weight: 800">
+        Results for your search: <span style="color: white;">"@Query"</span>
+    </MudText>
+
+    @if (isLoading)
+    {
+        <div class="d-flex justify-center align-center" style="height: 40vh;">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+        </div>
+    }
+    else if (!foundTracks.Any() && !foundPlaylists.Any())
+    {
+        <div class="d-flex flex-column align-center justify-center mt-16">
+            <MudIcon Icon="@Icons.Material.Filled.SearchOff" Size="Size.Large" Style="color: gray; font-size: 5rem;" />
+            <MudText Typo="Typo.h5" Class="mt-4 font-weight-bold" Style="color: white;">Nothing found</MudText>
+            <MudText Typo="Typo.body1" Class="mt-2" Style="color: gray;">Try using different keywords.</MudText>
+        </div>
+    }
+    else
+    {
+        <div class="d-flex flex-column gap-8">
+            
+            @if (foundTracks.Any())
+            {
+                <div>
+                    <MudText Typo="Typo.h3" Class="mb-4 font-weight-bold" Style="color: white; font-weight: 800">Tracks</MudText>
+                    <div class="d-flex flex-column gap-1">
+                        @for (int i = 0; i < foundTracks.Count; i++)
+                        {
+                            var track = foundTracks[i];
+                            var index = i;
+                            <TrackRow Track="@track" Queue="@foundTracks" Index="@index" TrackNumber="@(index + 1)" />
+                        }
+                    </div>
+                </div>
+            }
+
+            @if (foundPlaylists.Any())
+            {
+                <div>
+                    <MudText Typo="Typo.h3" Class="mb-4 font-weight-bold" Style="color: white; font-weight: 800">Playlists</MudText>
+                    <div class="cards-grid">
+                        @foreach (var playlist in foundPlaylists)
+                        {
+                            <PlaylistCard Playlist="@playlist" />
+                        }
+                    </div>
+                </div>
+            }
+            
+        </div>
+    }
+</MudContainer>
+
+    @code {
+    [Parameter]
+    public string Query { get; set; } = "";
+
+    private List<TrackShortResponseDTO> foundTracks = new();
+    private List<PlaylistShortDTO> foundPlaylists = new();
+    private bool isLoading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await PerformSearchAsync();
+    }
+
+    private async Task PerformSearchAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Query)) return;
+
+        isLoading = true;
+        foundTracks.Clear();
+        foundPlaylists.Clear();
+
+        try
+        {
+            var tracksTask = TrackApi.SearchTracksAsync(Query);
+            var playlistsTask = PlaylistApi.SearchPlaylistsAsync(Query);
+
+            await Task.WhenAll(tracksTask, playlistsTask);
+
+            foundTracks = tracksTask.Result;
+            foundPlaylists = playlistsTask.Result;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+            Console.WriteLine("=== SEARCH ERROR ===");
+            Console.WriteLine($"Search Error: {ex}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}
+
+<style>
+    .cards-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 24px;
+        padding-bottom: 2rem;
+    }
+</style>

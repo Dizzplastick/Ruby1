@@ -1,0 +1,134 @@
+@using Ruby.Shared.DTO.UserDTO
+@using Ruby.Shared.DTO.LinksDTO
+@using Ruby.Shared.Enums
+@using Ruby.UI.Services.Api
+@inject IUserApi UserApi
+@inject IStorageApi StorageApi
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h4" Style="font-weight:800">Edit profile</MudText>
+    </TitleContent>
+    <DialogContent>
+        <div class="d-flex flex-column gap-4 py-4">
+            
+            <div class="d-flex justify-center">
+                <MudFileUpload T="IBrowserFile" Accept=".jpg, .png, .jpeg" FilesChanged="OnImageFileSelected">
+                    <ActivatorContent>
+                        <MudBadge Overlap="true" Content="@("Edit")" Color="Color.Primary" Class="cursor-pointer">
+                            <div style="@($"width: 150px; height: 150px; border-radius: 50%; border: 2px dashed rgba(255,255,255,0.2); background-image: url('{previewUrl}'); background-size: cover; background-position: center;")"></div>
+                        </MudBadge>
+                    </ActivatorContent>
+                </MudFileUpload>
+            </div>
+
+            <MudTextField @bind-Value="model.Username" Label="Username" Variant="Variant.Outlined" FullWidth />
+            
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="isUpdating">Cancel</MudButton>
+        <MudButton Color="Color.Primary" OnClick="Submit" Disabled="isUpdating || string.IsNullOrWhiteSpace(model.Username)">
+            @if (isUpdating)
+            {
+                <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
+                <MudText Class="ms-2">@statusMessage</MudText>
+            }
+            else
+            {
+                <MudText Style="font-weight:800">SAVE</MudText>
+            }
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = null!;
+    
+    [Parameter] public string? CurrentUsername { get; set; }
+    [Parameter] public string? CurrentAvatarUrl { get; set; }
+
+    private UpdateProfileRequestDTO model = new();
+    private IBrowserFile? imageFile;
+    private string previewUrl = "";
+    private bool isUpdating;
+    private string statusMessage = "Saving...";
+
+    protected override void OnInitialized()
+    {
+        model.Username = CurrentUsername ?? "";
+        
+        var time = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        previewUrl = CurrentAvatarUrl != null
+            ? $"{CurrentAvatarUrl}{(CurrentAvatarUrl.Contains("?") ? "&" : "?")}t={time}"
+            : "https://via.placeholder.com/150";
+    }
+
+    private async Task OnImageFileSelected(IBrowserFile file)
+    {
+        if (file == null) return;
+        imageFile = file;
+        
+        var buffer = new byte[file.Size];
+        await file.OpenReadStream(maxAllowedSize: 30 * 1024 * 1024).ReadAsync(buffer);
+        previewUrl = $"data:{file.ContentType};base64,{Convert.ToBase64String(buffer)}";
+
+        StateHasChanged();
+    }
+
+    private async Task Submit()
+    {
+        isUpdating = true;
+        try
+        {
+            if (imageFile != null)
+            {
+                statusMessage = "Uploading photo...";
+                StateHasChanged();
+
+                var request = new GenerateUploadLinkRequestDTO
+                {
+                    FileName = imageFile.Name,
+                    FileSize = imageFile.Size,
+                    FileType = UploadFileTypeEnum.UserProfileAvatar
+                };
+                
+                var uploadData = await StorageApi.GenerateUploadLinkAsync(request);
+                await UploadBrowserFileToS3(uploadData.PresignedUrl, imageFile, imageFile.ContentType);
+                model.AvatarKey = uploadData.FileKey;
+            }
+
+            statusMessage = "Saving...";
+            StateHasChanged();
+
+            await UserApi.UpdateProfileAsync(model);
+            
+            Snackbar.Add("Profile updated!", Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isUpdating = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task UploadBrowserFileToS3(string url, IBrowserFile file, string contentType)
+    {
+        using var client = new HttpClient();
+        var content = new StreamContent(file.OpenReadStream(maxAllowedSize: 30 * 1024 * 1024));
+        content.Headers.ContentLength = file.Size;
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+        var response = await client.PutAsync(url, content);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException("Error uploading file to server.");
+        }
+    }
+}

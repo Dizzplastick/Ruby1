@@ -1,0 +1,262 @@
+@page "/playlist/{Id:guid}"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using Ruby.UI.Services
+@using Ruby.UI.Services.Api
+@using Ruby.Shared.DTO.PlaylistDTO
+@using Ruby.Shared.DTO.TrackDTO
+@using Ruby.UI.Shared.Components
+@inject IPlaylistApi PlaylistApi
+@inject IStorageApi StorageApi
+@inject AudioPlayerService Player
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject NavigationManager NavManager
+@using Microsoft.AspNetCore.Components.Authorization
+@inject AuthenticationStateProvider AuthStateProvider
+
+<MudContainer MaxWidth="MaxWidth.False" Class="d-flex flex-column pa-6" Style="height: 100vh; overflow: hidden;">
+    @if (isLoading)
+    {
+        <div class="d-flex justify-center align-center" style="height: 50vh;">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+        </div>
+    }
+    else if (playlist == null)
+    {
+        <MudAlert Severity="Severity.Error">Playlist not found or you do not have access.</MudAlert>
+    }
+    else
+    {
+        <div class="d-flex align-end gap-10 mb-12 flex-shrink-0">
+            <MudImage Src="@(playlist.CoverImageUrl ?? "https://via.placeholder.com/500")"
+                      Width="500" Height="500" Alt="Cover" Elevation="25"
+                      Class="rounded-lg object-cover shadow-2xl flex-shrink-0" />
+
+            <div class="flex-grow-1">
+                <MudText Typo="Typo.caption" Class="text-uppercase font-bold" Style="color: #a0a0a0; font-weight: 800;">
+                    @(playlist.IsPrivate ? "Private playlist" : "Playlist")
+                </MudText>
+
+                
+                <MudText Typo="Typo.h2" Class="font-weight-black mb-2" Style="color: white; font-size: clamp(2.5rem, 5vw, 5rem); line-height: 1.1; font-weight: 800;">
+                    @playlist.Title
+                </MudText>
+                
+                <div class="d-flex align-center gap-2 mt-4">
+                    <MudLink Href="@($"/profile/{playlist.Author.Id}")"
+                             Typo="Typo.body1"
+                             Underline="Underline.Hover"
+                             Color="Color.Inherit"
+                             Style="color: white; font-weight: 800;">
+                        @playlist.Author.Username
+                    </MudLink>
+                    <MudText Typo="Typo.body2" Style="color: #a0a0a0; font-weight: 800;">• @playlist.Tracks.Count tracks</MudText>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex align-center gap-4 mb-8">
+            <MudFab Color="Color.Primary" StartIcon="@Icons.Material.Filled.PlayArrow" Style="font-weight: 800;"
+                    Label="Play" Size="Size.Large" OnClick="PlayAllAsync" />
+            
+            <MudIconButton Icon="@(playlist.IsLikedByCurrentUser ? Icons.Material.Filled.Favorite : Icons.Material.Filled.FavoriteBorder)"
+                           Color="@(playlist.IsLikedByCurrentUser ? Color.Primary : Color.Default)"
+                           Size="Size.Large" OnClick="ToggleLike" />
+            @if (isOwner)
+            {
+                <MudMenu Icon="@Icons.Material.Filled.MoreHoriz" AnchorOrigin="Origin.BottomCenter" TransformOrigin="Origin.TopCenter">
+
+                    <MudMenuItem Icon="@Icons.Material.Filled.Edit" Color="Color.Info" OnClick="OpenEditDialog">Edit</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="DeletePlaylist">Delete</MudMenuItem>
+                </MudMenu>
+            }
+        </div>
+
+        <div class="tracks-header d-none d-md-grid px-4 py-2 border-b mb-2"
+             style="grid-template-columns: 40px 1fr 1fr 80px; color: #a0a0a0; font-size: 0.8rem; text-transform: uppercase;">
+            
+            <div class="d-flex justify-end">@if (isOwner) { <span>Действия</span> }</div>
+        </div>
+
+        <div class="d-flex flex-column flex-grow-1" style="overflow-y: auto; overflow-x: hidden;">
+            @for (int i = 0; i < playlist.Tracks.Count; i++)
+            {
+                var track = playlist.Tracks[i];
+                var index = i;
+        
+            <div class="track-row-hover rounded-lg position-relative" @onclick="@(async () => await PlayTrackAsync(index))">
+            
+                    <TrackRow Track="@track" TrackNumber="@(index + 1)" >
+                    <AdditionalActions>
+                    @if (isOwner)
+                    {
+                            <MudIconButton Icon="@Icons.Material.Filled.RemoveCircleOutline"
+                                           Color="Color.Secondary"
+                                           Size="Size.Medium"
+                                           OnClick="@(() => RemoveTrack(track.Id))"
+                                       Title="Remove from playlist" />
+                    }
+                </AdditionalActions>
+                </TrackRow>
+                </div>
+            }
+        </div>
+    }
+</MudContainer>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private PlaylistResponseDTO? playlist;
+    private bool isLoading = true;
+    private Guid? currentUserId;
+    private bool isOwner => playlist?.Author.Id == currentUserId;
+
+    
+
+    protected override async Task OnParametersSetAsync()
+    {
+        isLoading = true;
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var idClaim = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (Guid.TryParse(idClaim, out var parsedId))
+            {
+                currentUserId = parsedId;
+            }
+
+            playlist = await PlaylistApi.GetPlaylistByIdAsync(Id);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Failed to load playlist", Severity.Error);
+            Console.WriteLine(ex.Message);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task PlayAllAsync()
+    {
+        if (playlist?.Tracks.Any() == true)
+        {
+            await Player.PlayPlaylistAsync(playlist.Tracks, 0);
+        }
+    }
+
+    private async Task PlayTrackAsync(int index)
+    {
+        if (playlist?.Tracks.Any() == true)
+        {
+            await Player.PlayPlaylistAsync(playlist.Tracks, index);
+        }
+    }
+
+    private async Task ToggleLike()
+    {
+        if (playlist == null) return;
+        try
+        {
+            await PlaylistApi.ToggleLikeAsync(Id);
+            playlist.IsLikedByCurrentUser = !playlist.IsLikedByCurrentUser;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error liking playlist: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task OpenEditDialog()
+    {
+        if (playlist == null) return;
+
+        var parameters = new DialogParameters<EditPlaylistDialog>
+        {
+            { x => x.Model, new UpdatePlaylistRequestDTO { Title = playlist.Title, IsPrivate = playlist.IsPrivate } },
+            { x => x.CurrentCoverUrl, playlist.CoverImageUrl }
+        };
+
+        var options = new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true };
+        
+        var dialog = await DialogService.ShowAsync<EditPlaylistDialog>("Edit Playlist", parameters, options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled && result.Data is UpdatePlaylistRequestDTO updatedModel)
+        {
+            try
+            {
+                var updatedPlaylist = await PlaylistApi.UpdatePlaylistAsync(Id, updatedModel);
+                
+                playlist = updatedPlaylist;
+                Snackbar.Add("Playlist successfully updated", Severity.Success);
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Error updating playlist: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+
+    private async Task DeletePlaylist()
+    {
+        bool? confirm = await DialogService.ShowMessageBox("Delete Playlist",
+            "Are you sure? This action cannot be undone.", yesText: "Delete", cancelText: "Cancel");
+            
+        if (confirm == true)
+        {
+            try
+            {
+                await PlaylistApi.DeletePlaylistAsync(Id);
+                Snackbar.Add("Playlist deleted", Severity.Warning);
+                NavManager.NavigateTo("/main");
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Error deleting playlistс: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+
+    private async Task RemoveTrack(Guid trackId)
+    {
+        bool? confirm = await DialogService.ShowMessageBox("Delete track",
+            "Do you want to remove this track from the playlist?", yesText: "Yes", cancelText: "No");
+            
+        if (confirm == true)
+        {
+            try
+            {
+                await PlaylistApi.RemoveTrackAsync(Id, trackId);
+                playlist!.Tracks.RemoveAll(t => t.Id == trackId);
+                Snackbar.Add("Track removed", Severity.Info);
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Error: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+}
+
+<style>
+    .track-row-hover {
+        cursor: pointer;
+        transition: background-color 0.2s;
+        position: relative;
+    }
+
+        
+
+
+
+    .shadow-2xl {
+        box-shadow: 0 35px 70px -15px rgba(0, 0, 0, 0.7);
+    }
+
+    .border-b {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+</style>

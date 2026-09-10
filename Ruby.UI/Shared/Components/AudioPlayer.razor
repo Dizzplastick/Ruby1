@@ -1,0 +1,193 @@
+@using MudBlazor
+@using Ruby.UI.Services
+@using Ruby.UI.Services.Api
+@using Ruby.Shared.DTO.LikesDTO
+@inject AudioPlayerService Player
+@inject ITrackApi TrackApi
+@implements IDisposable
+
+<div class="player-wrapper d-flex align-center px-6">
+
+    <div class="player-section controls d-flex align-center">
+        <MudIconButton Icon="@Icons.Material.Filled.Shuffle"
+                       Size="Size.Medium"
+                       Class="mx-1"
+                       Color="@(Player.IsShuffle ? Color.Primary : Color.Default)"
+                       OnClick="Player.ToggleShuffle" />
+
+        <MudIconButton Icon="@Icons.Material.Filled.SkipPrevious"
+                       Size="Size.Large"
+                       Color="Color.Inherit"
+                       OnClick="OnPreviousAsync" />
+
+        <MudIconButton Icon="@(Player.IsPlaying ? Icons.Material.Filled.PauseCircleFilled : Icons.Material.Filled.PlayCircleFilled)"
+                       Class="main-play-btn mx-2 icon-white"
+                       Color="Color.Primary"
+                       Size="Size.Large"
+                       OnClick="OnTogglePlayAsync" />
+
+        <MudIconButton Icon="@Icons.Material.Filled.SkipNext"
+                       Size="Size.Large"
+                       Color="Color.Inherit"
+                       OnClick="OnNextAsync" />
+
+        <MudIconButton Icon="@GetRepeatIcon()"
+                       Size="Size.Medium"
+                       Class="mx-1"
+                       Color="@(Player.Repeat != RepeatMode.None ? Color.Primary : Color.Default)"
+                       OnClick="Player.ToggleRepeat" />
+    </div>
+
+    <div class="player-section timeline flex-grow-1 d-flex align-center mx-8">
+        <MudText Typo="Typo.caption" Class="time-label">@FormatTime(Player.CurrentPositionSeconds)</MudText>
+
+        <MudSlider T="double" Min="0" Max="@Math.Max(1, Player.TotalDurationSeconds)"
+                   Value="@Player.CurrentPositionSeconds"
+                   ValueChanged="SeekAsync"
+                   Size="Size.Medium"
+                   Color="Color.Primary" Class="mx-3 flex-grow-1" />
+
+        <MudText Typo="Typo.caption" Class="time-label">@FormatTime(Player.TotalDurationSeconds)</MudText>
+    </div>
+
+    <div class="player-section volume d-flex align-center mr-6">
+        <MudIcon Icon="@Icons.Material.Filled.VolumeUp" Size="Size.Medium" Class="mr-2" />
+        <MudSlider T="int" Min="0" Max="100"
+                   Value="@Player.CurrentVolume"
+                   ValueChanged="ChangeVolumeAsync"
+                   Color="Color.Primary" Style="width: 80px;" />
+    </div>
+
+    @if (Player.CurrentTrack != null)
+    {
+        <div class="player-section info d-flex align-center mr-6">
+            <MudImage Src="@(Player.CurrentTrack.CoverImageUrl ?? "https://via.placeholder.com/40")"
+                      Width="60" Height="60" Alt="Cover" Class="rounded mr-4" ObjectFit="ObjectFit.Cover" />
+            <div class="d-flex flex-column justify-center overflow-hidden" style="max-width: 200px;">
+                <MudText Typo="Typo.body2" Class="mud-text-truncate" Style="line-height: 1.2; font-weight: 800">
+                    @Player.CurrentTrack.Title
+                </MudText>
+                <MudText Typo="Typo.caption" Class="mud-text-truncate" Color="Color.Secondary" Style="font-weight: 800">
+                    @Player.CurrentTrack.Author.Username
+                </MudText>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="player-section info d-flex align-center mr-4" style="width: 200px;">
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Style="font-weight: 800">Select a track to play</MudText>
+        </div>
+    }
+
+    <div class="player-section like">
+        @if (Player.CurrentTrack != null)
+        {
+            <MudIconButton Icon="@(Player.CurrentTrack.IsLikedByCurrentUser ? Icons.Material.Filled.Favorite : Icons.Material.Filled.FavoriteBorder)"
+                           Color="@(Player.CurrentTrack.IsLikedByCurrentUser ? Color.Primary : Color.Default)"
+                           Size="Size.Medium"
+                           OnClick="ToggleLikeAsync" />
+        }
+    </div>
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        Player.OnStateChanged += SafeStateHasChanged;
+    }
+
+    public void Dispose()
+    {
+        Player.OnStateChanged -= SafeStateHasChanged;
+    }
+
+    private void SafeStateHasChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnTogglePlayAsync() => await Player.TogglePlayPause();
+    private async Task OnNextAsync() => await Player.Next();
+    private async Task OnPreviousAsync() => await Player.Previous();
+    private async Task SeekAsync(double value) => await Player.SeekAsync(value);
+    private async Task ChangeVolumeAsync(int value) => await Player.SetVolumeAsync(value);
+
+    private string FormatTime(double totalSeconds)
+    {
+        if (totalSeconds <= 0) return "0:00";
+        var time = TimeSpan.FromSeconds(totalSeconds);
+        return time.ToString(@"m\:ss");
+    }
+
+    private async Task ToggleLikeAsync()
+    {
+        if (Player.CurrentTrack == null) return;
+
+        try
+        {
+            await TrackApi.ToggleLikeAsync(new ToggleLikeRequestDTO { TrackId = Player.CurrentTrack.Id });
+            Player.CurrentTrack.IsLikedByCurrentUser = !Player.CurrentTrack.IsLikedByCurrentUser;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error while liking: {ex.Message}");
+        }
+    }
+
+    private string GetRepeatIcon()
+    {
+        return Player.Repeat switch
+        {
+            RepeatMode.One => Icons.Material.Filled.RepeatOne,
+            _ => Icons.Material.Filled.Repeat
+        };
+    }
+}
+
+<style>
+    .icon-white {
+        color: white !important;
+    }
+
+    .player-wrapper {
+        height: 90px;
+        width: 100%;
+        background-color: #181818;
+        border-top: 1px solid #282828;
+    }
+
+    .player-section.timeline {
+        min-width: 250px;
+    }
+
+    .player-wrapper .mud-slider-container {
+        margin-top: 0;
+    }
+
+    .custom-slider-volume .mud-slider-thumb {
+        width: 5px !important;
+        height: 5px !important;
+        margin-top: -3px !important;
+    }
+
+
+    .time-label {
+        color: #b3b3b3;
+        font-variant-numeric: tabular-nums;
+        font-weight: 800;
+    }
+
+    .main-play-btn svg {
+        font-size: 3.5rem !important;
+        width: 3.5rem !important;
+        height: 3.5rem !important;
+    }
+
+    @@media (max-width: 800px) {
+        .player-section.volume, .player-section.info {
+            display: none !important;
+        }
+    }
+</style> 

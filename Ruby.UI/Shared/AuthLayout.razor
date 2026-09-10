@@ -1,0 +1,24 @@
+@inherits LayoutComponentBase
+
+
+<MudThemeProvider Theme="@AppTheme.myTheme" IsDarkMode="true" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+<MudContainer MaxWidth="MaxWidth.Medium" Class="d-flex flex-column align-center" Style="min-height: 100vh; padding-top: 10vh;">
+            
+          
+            <MudText Typo="Typo.h1" 
+                     Color="Color.Primary" 
+                     Style="font-size: 9rem; font-weight: 800; letter-spacing: -5px; line-height: 1;" 
+                     Class="mt-15 mb-20">
+                Ruby
+            </MudText>
+
+            @Body
+            
+        </MudContainer>
+</MudLayout>
+

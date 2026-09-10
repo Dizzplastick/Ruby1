@@ -1,0 +1,126 @@
+@page "/login"
+@attribute [AllowAnonymous]
+@layout AuthLayout
+@using Ruby.Shared.DTO.UserDTO
+@using Ruby.UI.Services.Api
+@using Ruby.UI.Services.HttpHandlers
+@using Ruby.UI.Services
+@using System.ComponentModel.DataAnnotations
+@inject IAuthApi AuthApi
+@inject ITokenStorageService TokenStorage
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager NavigationManager
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="d-flex flex-column " Style="min-height: 85vh;">
+    
+
+<EditForm Model="@formModel" OnValidSubmit="HandleLogin">
+    <DataAnnotationsValidator />
+        <MudGrid Justify="Justify.Center">
+        <MudItem xs="12" sm="7">
+                <MudCard Elevation="3" Class="pa-2 mud-height-full">
+                <MudCardContent>
+                    <MudTextField Label="Username" HelperText="Max. 20 characters"
+                                  @bind-Value="formModel.Username" For="@(() => formModel.Username)" />
+                    <MudTextField Label="Password" Class="mt-3"
+                                  @bind-Value="formModel.Password" For="@(() => formModel.Password)" InputType="InputType.Password" />
+                </MudCardContent>
+                <MudCardActions>
+                    <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Outlined" Color="Color.Primary" Class="ml-auto">Login</MudButton>
+                </MudCardActions>
+            </MudCard>
+        </MudItem>
+        <MudItem xs="12" sm="5">
+                <MudPaper Class="pa-6 mud-height-full" Elevation="3">
+                <MudText Typo="Typo.subtitle2">Validation Summary</MudText>
+                @if (success)
+                {
+                    <MudText Color="Color.Success">Success</MudText>
+                }
+                else
+                {
+                    <MudText Color="@Color.Error">
+                        <ValidationSummary />
+                    </MudText>
+                }
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <MudText Color="Color.Error" Typo="Typo.body2" Class="mt-2">
+                        @errorMessage
+                    </MudText>
+                }
+            </MudPaper>
+        </MudItem>
+            <MudItem xs="12" Class="d-flex justify-center mt-4">
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Don't have an account?
+                    <MudLink Href="/register" Color="Color.Primary" Underline="Underline.Always" Class="ml-1">
+                        Register here
+                    </MudLink>
+                </MudText>
+        </MudItem>
+    </MudGrid>
+</EditForm>
+</MudContainer>
+
+@code {
+
+    LoginAccountForm formModel = new LoginAccountForm();
+    bool success;
+
+    public class LoginAccountForm
+    {
+        [Required]
+        [StringLength(20, ErrorMessage = "The name cannot be longer than 20 characters and less than 3.", MinimumLength = 3)]
+        public string Username { get; set; }
+
+
+        [Required]
+        [StringLength(50, ErrorMessage = "Password must be at least 6 characters long.", MinimumLength = 6)]
+        public string Password { get; set; }
+    }
+    private string errorMessage = string.Empty;
+    private bool isLoading = false;
+
+    private async Task HandleLogin()
+    {
+        isLoading = true;
+        errorMessage = string.Empty;
+
+        try
+        {
+            var requestDto = new UserLogInRequestDTO
+            {
+                Username = formModel.Username,
+                Password = formModel.Password
+            };
+
+
+            var response = await AuthApi.LoginAsync(requestDto);
+
+            await TokenStorage.SaveTokensAsync(response.Token, response.RefreshToken);
+
+            ((CustomAuthStateProvider)AuthStateProvider).NotifyUserLoggedIn();
+
+            NavigationManager.NavigateTo("/main");
+        }
+        catch (Refit.ApiException)
+        {
+            errorMessage = "Incorrect username or password.";
+        }
+        catch (Exception)
+        {
+            errorMessage = "An error occurred while connecting to the server.";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    }
+
+
+
+

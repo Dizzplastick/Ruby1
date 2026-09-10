@@ -1,0 +1,130 @@
+@inject IDialogService DialogService
+@using Ruby.Shared.DTO.PlaylistDTO
+@using Ruby.UI.Services.Api
+@using Microsoft.AspNetCore.Components.Forms
+@using Ruby.Shared.DTO.LinksDTO
+@using Ruby.Shared.Enums
+@inject IStorageApi StorageApi
+@inject ISnackbar Snackbar
+@inject IStorageApi StorageApi
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h4" Style="font-weight: 800">Edit playlist</MudText>
+    </TitleContent>
+    <DialogContent>
+        <div class="d-flex flex-column gap-4 py-4">
+            <div class="d-flex justify-center">
+                <MudFileUpload T="IBrowserFile" Accept=".jpg, .png, .jpeg" FilesChanged="OnImageFileSelected">
+                    <ActivatorContent>
+                        <MudBadge Overlap="true" Content="@("Update")" Color="Color.Primary" Class="cursor-pointer">
+                            <MudImage Src="@previewUrl" Width="150" Height="150" ObjectFit="ObjectFit.Cover"
+                                      Class="rounded-lg border-2 border-dashed" Style="border-color: gray;" />
+                        </MudBadge>
+                    </ActivatorContent>
+                </MudFileUpload>
+            </div>
+
+            <MudTextField @bind-Value="Model.Title" Style="font-weight: 500" Label="Playlist Title" Variant="Variant.Outlined" FullWidth />
+            
+            <MudSwitch @bind-Value="Model.IsPrivate" Color="Color.Primary" Style="font-weight: 800">
+                <b>Private Playlist</b>
+            </MudSwitch>
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="isUploading" Style="font-weight: 600">Cancel</MudButton>
+        <MudButton Color="Color.Primary" OnClick="Submit" Disabled="isUploading">
+            @if (isUploading)
+            {
+                <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
+                <MudText Class="ms-2">Saving...</MudText>
+            }
+            else
+            {
+                <MudText Style="font-weight: 800">Save</MudText>
+            }
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = null!;
+    
+    [Parameter] public UpdatePlaylistRequestDTO Model { get; set; } = new();
+    [Parameter] public string? CurrentCoverUrl { get; set; }
+
+    private IBrowserFile? imageFile;
+    private string? previewUrl;
+    private bool isUploading;
+
+    protected override void OnInitialized()
+    {
+        previewUrl = CurrentCoverUrl ?? "https://via.placeholder.com/150";
+    }
+
+    private async Task OnImageFileSelected(IBrowserFile file)
+    {
+        if (file == null) return;
+        
+        imageFile = file;
+        
+        var buffer = new byte[file.Size];
+        await file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024).ReadAsync(buffer);
+        previewUrl = $"data:{file.ContentType};base64,{Convert.ToBase64String(buffer)}";
+    }
+
+    private async Task Submit()
+    {
+        isUploading = true;
+        try
+        {
+            if (imageFile != null)
+            {
+                var imageRequest = new GenerateUploadLinkRequestDTO
+                {
+                    FileName = imageFile.Name,
+                    FileSize = imageFile.Size,
+                    
+                    FileType = UploadFileTypeEnum.TrackCover,
+                };
+                
+                var imageUrlData = await StorageApi.GenerateUploadLinkAsync(imageRequest);
+                
+                await UploadBrowserFileToS3(imageUrlData.PresignedUrl, imageFile, imageFile.ContentType);
+                
+                Model.CoverImageKey = imageUrlData.FileKey;
+            }
+
+            MudDialog.Close(DialogResult.Ok(Model));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error saving the cover: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isUploading = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task UploadBrowserFileToS3(string url, IBrowserFile file, string contentType)
+    {
+        using var client = new HttpClient();
+        var content = new StreamContent(file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024));
+        
+        content.Headers.ContentLength = file.Size;
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+        
+        var response = await client.PutAsync(url, content);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorXml = await response.Content.ReadAsStringAsync();
+            throw new HttpRequestException($"S3 request rejected. Status code: {response.StatusCode}. Details: {errorXml}");
+        }
+    }
+}
+

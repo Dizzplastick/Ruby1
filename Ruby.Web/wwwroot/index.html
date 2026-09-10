@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ruby.Web</title>
+    <base href="/" />
+
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
+    <link href="_content/Ruby.UI/css/app.css?v=2" rel="stylesheet" />
+
+</head>
+
+<body>
+    <div id="app">
+        <svg class="loading-progress">
+            <circle r="40%" cx="50%" cy="50%" />
+            <circle r="40%" cx="50%" cy="50%" />
+        </svg>
+        <div class="loading-progress-text"></div>
+    </div>
+
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="" class="reload">Reload</a>
+        <a class="dismiss">🗙</a>
+    </div>
+    <script src="_framework/blazor.webassembly.js"></script>
+    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
+    <script>
+        window.rubyAudioHelpers = {
+            getAudioDuration: async function (streamRef) {
+                const arrayBuffer = await streamRef.arrayBuffer();
+                const blob = new Blob([arrayBuffer]);
+                const url = URL.createObjectURL(blob);
+
+                return new Promise((resolve) => {
+                    const audio = new Audio(url);
+
+                    audio.onloadedmetadata = () => {
+                        URL.revokeObjectURL(url);
+                        resolve(Math.round(audio.duration));
+                    };
+
+                    audio.onerror = () => {
+                        URL.revokeObjectURL(url);
+                        resolve(0);
+                    };
+                });
+            }
+        };
+    </script>
+    <script>
+        window.rubyAudioEngine = {
+            player: new Audio(),
+            dotNetRef: null,
+
+            init: function (dotNetRef) {
+                this.dotNetRef = dotNetRef;
+
+                this.player.ontimeupdate = () => {
+                    if (this.dotNetRef) {
+                        this.dotNetRef.invokeMethodAsync(
+                            'OnJsProgress',
+                            this.player.currentTime,
+                            this.player.duration || 0
+                        );
+                    }
+                };
+
+                this.player.onended = () => {
+                    if (this.dotNetRef) {
+                        this.dotNetRef.invokeMethodAsync('OnJsTrackEnded');
+                    }
+                };
+            },
+
+            play: function (url) {
+                if (this.player.src !== url) {
+                    this.player.src = url;
+                }
+                this.player.play();
+            },
+
+            pause: function () {
+                this.player.pause();
+            },
+
+            resume: function () {
+                this.player.play();
+            },
+
+            stop: function () {
+                this.player.pause();
+                this.player.currentTime = 0;
+            },
+
+            seek: function (seconds) {
+                this.player.currentTime = seconds;
+            },
+
+            setVolume: function (volume) {
+                this.player.volume = volume / 100;
+            }
+
+        };
+            
+        window.scrollCarousel = function (element, direction) {
+            if (element) {
+                const scrollAmount = direction * 400;
+                element.scrollBy({
+                    left: scrollAmount,
+                    behavior: 'smooth'
+                });
+            }
+        }
+    </script>
+</body>
+
+</html>

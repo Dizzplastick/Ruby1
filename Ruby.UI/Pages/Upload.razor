@@ -1,0 +1,146 @@
+@page "/upload"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using Ruby.UI.Services.Api
+@using Ruby.UI.Services
+@using Ruby.Shared.DTO.TrackDTO
+@using Ruby.Shared.DTO.LinksDTO
+@using Ruby.Shared.Enums
+@inject IStorageApi StorageApi
+@inject IAudioMetadataService AudioMetadataService
+@inject ITrackApi TrackApi
+@inject ISnackbar Snackbar
+@inject NavigationManager NavigationManager
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="mt-8">
+    <MudPaper Class="pa-6" Style="background: #1e1e1e; color: white;">
+        <MudText Typo="Typo.h3" Style=" font-weight: 800" Class="mb-6">Upload New Track</MudText>
+
+        <MudForm @ref="form" @bind-IsValid="@success">
+            <MudFileUpload T="IBrowserFile" FilesChanged="OnAudioFileSelected" Accept=".mp3,.wav">
+                <ActivatorContent>
+                    <MudButton HtmlTag="label" Variant="Variant.Filled" Color="Color.Primary" 
+                               StartIcon="@Icons.Material.Filled.CloudUpload" Style=" font-weight: 800">
+                        @(audioFile == null ? "Select an audio file" : audioFile.Name)
+                    </MudButton>
+                </ActivatorContent>
+            </MudFileUpload>
+
+            <MudTextField T="string" Label="Track Title" @bind-Value="model.Title" 
+                          Required="true" Class="mt-4" Style=" font-weight: 800" />
+
+            <MudSelect T="TrackGenresEnum" Label="Select Genres" MultiSelection="true"
+                       @bind-SelectedValues="selectedGenres" Class="mt-4" Style=" font-weight: 800">
+                @foreach (var genre in Enum.GetValues<TrackGenresEnum>())
+                {
+                    <MudSelectItem T="TrackGenresEnum" Value="@genre" >@genre.ToString()</MudSelectItem>
+                }
+            </MudSelect>
+
+            <div class="d-flex align-center mt-6">
+                <MudFileUpload T="IBrowserFile" FilesChanged="OnImageFileSelected" Accept=".jpg,.png">
+                    <ActivatorContent>
+                        <MudButton HtmlTag="label" Variant="Variant.Outlined" Color="Color.Secondary" Style=" font-weight: 800">
+                            @(imageFile == null ? "Upload Cover Image" : "Cover Image Selected")
+                        </MudButton>
+                    </ActivatorContent>
+                </MudFileUpload>
+                @if (imagePreviewUrl != null)
+                {
+                    <MudImage Src="@imagePreviewUrl" Width="60" Height="60" Class="rounded ml-4" ObjectFit="ObjectFit.Cover" />
+                }
+            </div>
+
+            <MudButton Variant="Variant.Filled" Color="Color.Success" FullWidth="true" 
+                       Class="mt-10" OnClick="HandleUpload" Disabled="@(!success || isUploading)" Style=" font-weight: 800">
+                @(isUploading ? "Uploading..." : "Publish Track")
+            </MudButton>
+        </MudForm>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private CreateTrackRequestDTO model = new();
+    private IBrowserFile? audioFile;
+    private IBrowserFile? imageFile;
+    private string? imagePreviewUrl;
+    private bool success;
+    private bool isUploading;
+    private MudForm form;
+    private IEnumerable<TrackGenresEnum> selectedGenres = new HashSet<TrackGenresEnum>();
+
+    private async Task OnAudioFileSelected(IBrowserFile file) => audioFile = file;
+
+    private async Task OnImageFileSelected(IBrowserFile file)
+    {
+        imageFile = file;
+        var buffer = new byte[file.Size];
+        await file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024).ReadAsync(buffer);
+        imagePreviewUrl = $"data:{file.ContentType};base64,{Convert.ToBase64String(buffer)}";
+    }
+
+    private async Task HandleUpload()
+    {
+        if (audioFile == null) return;
+        isUploading = true;
+
+        try
+        {
+            model.DurationSeconds = await AudioMetadataService.GetTrackDurationAsync(audioFile);
+
+            var audioRequest = new GenerateUploadLinkRequestDTO
+            {
+                FileName = audioFile.Name,
+                FileSize = audioFile.Size,
+                FileType = UploadFileTypeEnum.TrackAudio
+            };
+
+            var audioUrlData = await StorageApi.GenerateUploadLinkAsync(audioRequest);
+            await UploadToS3(audioUrlData.PresignedUrl, audioFile, "audio/mpeg");
+            model.AudioFileKey = audioUrlData.FileKey;
+
+            if (imageFile != null)
+            {
+                var imageRequest = new GenerateUploadLinkRequestDTO
+                {
+                    FileName = imageFile.Name,
+                    FileSize = imageFile.Size,
+                    FileType = UploadFileTypeEnum.TrackCover
+                };
+
+                var imageUrlData = await StorageApi.GenerateUploadLinkAsync(imageRequest);
+                await UploadToS3(imageUrlData.PresignedUrl, imageFile, "image/jpeg");
+                model.CoverImageKey = imageUrlData.FileKey;
+            }
+
+            model.GenreIds = selectedGenres.Select(g => (int)g).ToList();
+            await TrackApi.CreateTrackAsync(model);
+
+            Snackbar.Add("The track has been successfully published!", Severity.Success);
+            NavigationManager.NavigateTo("/");
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Upload error: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isUploading = false;
+        }
+    }
+
+    private async Task UploadToS3(string url, IBrowserFile file, string contentType)
+    {
+        using var client = new HttpClient();
+        var content = new StreamContent(file.OpenReadStream(maxAllowedSize: 30 * 1024 * 1024));
+        content.Headers.ContentLength = file.Size;
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+
+        var response = await client.PutAsync(url, content);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorXml = await response.Content.ReadAsStringAsync();
+            throw new HttpRequestException($"S3 request rejected. Details: {errorXml}");
+        }
+    }
+}

@@ -1,0 +1,260 @@
+@page "/profile/{Id:guid}"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using Ruby.UI.Services
+@using Ruby.Shared.DTO.UserDTO
+@using Ruby.UI.Services.Api
+@using Ruby.UI.Shared.Components
+@inject ITrackApi TrackApi
+@inject IUserApi UserApi
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject AuthenticationStateProvider AuthStateProvider
+
+<MudContainer MaxWidth="MaxWidth.False" Class="pa-0 pb-16">
+    @if (isLoading)
+    {
+        <div class="d-flex justify-center align-center" style="height: 50vh;">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+        </div>
+    }
+    else if (userProfile == null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mt-8 mx-4">User not found.</MudAlert>
+    }
+    else
+    {
+        <div class="profile-header">
+            <div class="header-background" style="background-image: url('@AvatarUrl');"></div>
+            
+            <div class="header-content d-flex align-end gap-6 px-4 px-md-8 pb-8 pt-16">
+                <div style="@($"width: clamp(120px, 15vw, 200px); height: clamp(120px, 15vw, 200px); flex-shrink: 0; border-radius: 50%; border: 4px solid rgba(255,255,255,0.1); box-shadow: 0 10px 30px rgba(0,0,0,0.5); background-image: url('{AvatarUrl}'); background-size: cover; background-position: center;")"></div>
+                <div class="flex-grow-1">
+                    <MudText Typo="Typo.h6" Class="text-uppercase font-bold" Style="color: rgba(255,255,255,0.7); text-shadow: 0 2px 4px rgba(0,0,0,0.5); font-weight:800">Profile</MudText>
+                    <MudText Typo="Typo.h1" Class="font-weight-black" Style="color: white; font-size: clamp(2rem, 5vw, 4rem); text-shadow: 0 4px 10px rgba(0,0,0,0.5); font-weight:800">
+                        @userProfile.Username
+                    </MudText>
+                </div>
+
+                @if (isCurrentUser)
+                {
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Inherit"
+                               OnClick="OpenEditDialog"
+                               Style="border-color: rgba(255,255,255,0.5); color: white; background: rgba(0,0,0,0.2); backdrop-filter: blur(5px); font-weight:800">
+                        Edit
+                    </MudButton>
+                }
+            </div>
+        </div>
+
+        <div class="px-4 px-md-8 mt-4">
+            <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" Color="Color.Primary" PanelClass="pt-6">
+                
+                <MudTabPanel>
+                    <TabContent>
+                        <span style="font-weight: 800;">Tracks</span>
+                    </TabContent>
+                    <ChildContent>
+                        @if (userProfile.Tracks != null && userProfile.Tracks.Any())
+                        {
+                            <div class="d-flex flex-column gap-1">
+                                @for (int i = 0; i < userProfile.Tracks.Count; i++)
+                                {
+                                    var track = userProfile.Tracks[i];
+                                    var index = i;
+
+                                    <TrackRow Track="@track" Queue="@userProfile.Tracks" Index="@index" TrackNumber="@(index + 1)">
+                                        <AdditionalActions>
+                                            @if (isCurrentUser)
+                                            {
+                                                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline"
+                                                Color="Color.Secondary"
+                                                Size="Size.Large"
+                                                OnClick="@(() => DeleteTrackAsync(track.Id))"
+                                                Title="Delete the track permanently" />
+                                            }
+                                        </AdditionalActions>
+                                    </TrackRow>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="d-flex flex-column align-center justify-center py-12">
+                                <MudIcon Icon="@Icons.Material.Filled.MusicNote" Size="Size.Large" Style="color: rgba(255,255,255,0.2);" />
+                                <MudText Typo="Typo.body1" Class="mt-2" Style="color: gray;">The user hasn't uploaded any tracks yet.</MudText>
+                            </div>
+                        }
+                    </ChildContent>
+                </MudTabPanel>
+
+                <MudTabPanel>
+                    <TabContent>
+                        <span style="font-weight: 800;">Playlists</span>
+                    </TabContent>
+                     <ChildContent>
+                    @if (userProfile.Playlists != null && userProfile.Playlists.Any())
+                    {
+                        <div class="cards-grid">
+                            @foreach (var playlist in userProfile.Playlists)
+                            {
+                                <PlaylistCard Playlist="@playlist" />
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-column align-center justify-center py-12">
+                            <MudIcon Icon="@Icons.Material.Filled.QueueMusic" Size="Size.Large" Style="color: rgba(255,255,255,0.2);" />
+                            <MudText Typo="Typo.body1" Class="mt-2" Style="color: gray;">The user doesn't have any public playlists.</MudText>
+                        </div>
+                    }
+                    </ChildContent>
+                </MudTabPanel>
+            </MudTabs>
+        </div>
+    }
+</MudContainer>
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private PublicUserResponseDTO? userProfile;
+    private bool isLoading = true;
+    private bool isCurrentUser = false;
+
+    private long _cacheBuster = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+    private string AvatarUrl => userProfile?.AvatarUrl == null
+        ? "https://via.placeholder.com/200?text=Avatar"
+        : $"{userProfile.AvatarUrl}{(userProfile.AvatarUrl.Contains("?") ? "&" : "?")}t={_cacheBuster}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadProfileAsync();
+    }
+
+    private async Task LoadProfileAsync()
+    {
+        isLoading = true;
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var idClaim = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            
+            if (Guid.TryParse(idClaim, out var currentId))
+            {
+                isCurrentUser = (Id == currentId);
+            }
+
+            userProfile = await UserApi.GetPublicUserProfileAsync(Id);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Failed to load profile", Severity.Error);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+    
+    private async Task DeleteTrackAsync(Guid trackId)
+    {
+        bool? confirm = await DialogService.ShowMessageBox(
+            "Delete track",
+            "Are you sure you want to delete this track? The files will be permanently deleted, this action cannot be undone.",
+            yesText: "Delete",
+            cancelText: "Cancel");
+            
+        if (confirm == true)
+        {
+            try
+            {
+                await TrackApi.DeleteTrackAsync(trackId);
+                
+                userProfile!.Tracks.RemoveAll(t => t.Id == trackId);
+                
+                Snackbar.Add("The track has been successfully deleted", Severity.Success);
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Error during deletion: {ex.Message}", Severity.Error);
+            }
+        }
+    }
+
+    private async Task OpenEditDialog()
+    {
+        var options = new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true };
+        
+        var parameters = new DialogParameters<EditProfileDialog>
+        {
+            { x => x.CurrentUsername, userProfile?.Username },
+            { x => x.CurrentAvatarUrl, userProfile?.AvatarUrl }
+        };
+
+        var dialog = await DialogService.ShowAsync<EditProfileDialog>("Edit Profile", parameters, options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled)
+        {
+            _cacheBuster = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            
+            var customAuth = (CustomAuthStateProvider)AuthStateProvider;
+            customAuth.NotifyProfileChanged();
+
+            await LoadProfileAsync();
+        }
+    }
+}
+
+<style>
+    .profile-header {
+        position: relative;
+        width: 100%;
+        min-height: 350px;
+        overflow: hidden;
+        background-color: #121212; 
+    }
+
+    .header-background {
+        position: absolute;
+        top: -30px;
+        left: -50px;
+        right: -50px;
+        bottom: -50px; 
+        background-size: cover;
+        background-position: center;
+        filter: blur(15px) brightness(0.6) saturate(1.5);
+        opacity: 0.8;
+        z-index: 1;
+    }
+
+    .profile-header::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 150px;
+        background: linear-gradient(to bottom, rgba(18,18,18,0) 0%, rgba(18,18,18,1) 100%);
+        z-index: 2;
+    }
+
+    .header-content {
+        position: relative;
+        z-index: 3;
+        height: 100%;
+        min-height: 350px;
+    }
+
+    .cards-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(390px, 1fr));
+        gap: 24px;
+        padding-bottom: 2rem;
+    }
+</style>

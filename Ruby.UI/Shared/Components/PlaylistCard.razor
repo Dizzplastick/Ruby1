@@ -1,0 +1,220 @@
+@using Ruby.UI.Services.Api
+@using Ruby.UI.Services
+@using Ruby.Shared.DTO.PlaylistDTO
+@using Ruby.Shared.DTO.LikesDTO
+@using Ruby.UI.Shared.Components 
+@inject NavigationManager NavigationManager
+@inject IPlaylistApi PlaylistApi
+@inject AudioPlayerService Player
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+
+<MudCard Elevation="0" Class="playlist-card bg-transparent">
+    <div class="image-container rounded-lg" @onclick="GoToPlaylist">
+        
+        <MudImage Src="@CoverUrl" Alt="Playlist Cover" ObjectFit="ObjectFit.Cover" />
+        
+        <div class="overlay d-flex align-center justify-center">
+            <div @onclick:stopPropagation="true">
+                <MudIconButton Icon="@Icons.Material.Filled.PlayArrow"
+                               Color="Color.Primary"
+                               Variant="Variant.Filled"
+                               Class="play-btn shadow-lg"
+                               @onclick="PlayPlaylistAsync" />
+            </div>
+
+            <div class="bottom-right-actions d-flex align-center" @onclick:stopPropagation="true">
+                <MudIconButton Icon="@(Playlist?.IsLikedByCurrentUser == true ? Icons.Material.Filled.Favorite : Icons.Material.Filled.FavoriteBorder)"
+                               Color="@(Playlist?.IsLikedByCurrentUser == true ? Color.Primary : Color.Inherit)"
+                               Size="Size.Large"
+                               Class="action-btn"
+                               OnClick="ToggleLikeAsync" />
+                
+                <MudMenu Icon="@Icons.Material.Filled.MoreVert"
+                         Size="Size.Large"
+                         Color="Color.Inherit"
+                         AnchorOrigin="Origin.BottomRight"
+                         TransformOrigin="Origin.TopRight"
+                         Class="action-btn">
+                    <MudMenuItem Icon="@Icons.Material.Filled.PlaylistAdd" OnClick="OpenAddToPlaylistDialog">
+                        <MudText Style="font-weight: 800;">Add all tracks to...</MudText>
+                    </MudMenuItem>
+                </MudMenu>
+            </div>
+        </div>
+    </div>
+
+    <MudCardContent Class="px-2 py-2" Style="overflow: hidden; width: 100%;">
+        <MudLink Href="@($"/playlist/{PlaylistId}")"
+                 Typo="Typo.subtitle1"
+                 Color="Color.Inherit"
+                 Style=" font-size: 1.1rem; font-weight: 800; display: block; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
+                 Underline="Underline.Hover">
+            @PlaylistTitle
+        </MudLink>
+    </MudCardContent>
+</MudCard>
+
+@code {
+    [Parameter] public PlaylistShortDTO? Playlist { get; set; }
+    private bool isLoadingTracks = false;
+
+    private Guid PlaylistId => Playlist?.Id ?? Guid.NewGuid();
+    private string CoverUrl => Playlist?.CoverImageUrl ?? "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=500&auto=format&fit=crop";
+    private string PlaylistTitle => Playlist?.Title ?? "Lofi Study Beats";
+
+    private async Task PlayPlaylistAsync()
+    {
+        if (Playlist == null) return;
+        isLoadingTracks = true;
+        try
+        {
+            var fullPlaylist = await PlaylistApi.GetPlaylistByIdAsync(Playlist.Id);
+            if (fullPlaylist?.Tracks != null && fullPlaylist.Tracks.Any())
+            {
+                await Player.PlayPlaylistAsync(fullPlaylist.Tracks, 0);
+            }
+            else
+            {
+                Snackbar.Add("There are no tracks in this playlist yet.", Severity.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Failed to load playlist tracks.", Severity.Error);
+        }
+        finally
+        {
+            isLoadingTracks = false;
+        }
+    }
+
+    private void GoToPlaylist()
+    {
+        NavigationManager.NavigateTo($"/playlist/{PlaylistId}");
+    }
+
+    private async Task ToggleLikeAsync()
+    {
+        if (Playlist == null) return;
+        try
+        {
+            await PlaylistApi.ToggleLikeAsync(Playlist.Id);
+            Playlist.IsLikedByCurrentUser = !Playlist.IsLikedByCurrentUser;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Failed to toggle like status.", Severity.Error);
+        }
+    }
+
+    private async Task OpenAddToPlaylistDialog()
+    {
+        if (Playlist == null) return;
+
+        try
+        {
+            var fullPlaylist = await PlaylistApi.GetPlaylistByIdAsync(Playlist.Id);
+            
+            if (fullPlaylist.Tracks == null || !fullPlaylist.Tracks.Any())
+            {
+                Snackbar.Add("This playlist is empty!", Severity.Info);
+                return;
+            }
+
+            var trackIds = fullPlaylist.Tracks.Select(t => t.Id).ToList();
+
+            var parameters = new DialogParameters<AddToPlaylistDialog>
+            {
+                { x => x.BulkTrackIds, trackIds }
+            };
+
+            var options = new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.ExtraSmall, FullWidth = true };
+            await DialogService.ShowAsync<AddToPlaylistDialog>("Add to Playlist", parameters, options);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Failed to load playlist data.", Severity.Error);
+        }
+    }
+}
+
+<style>
+    .playlist-card .image-container {
+        position: relative;
+        width: 100%;
+        padding-top: 100%;
+        overflow: hidden;
+        border-radius: 8px;
+        cursor: pointer;
+    }
+
+        .playlist-card .image-container img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.3s ease;
+            border-radius: 0;
+        }
+
+    .playlist-card .overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        border-radius: 0;
+    }
+
+    .playlist-card .bottom-right-actions {
+        position: absolute;
+        bottom: 4px;
+        right: 4px;
+        color: white;
+    }
+
+    .playlist-card .action-btn {
+        opacity: 0;
+        transform: translateY(5px);
+        transition: all 0.3s ease;
+    }
+
+    .playlist-card .play-btn {
+        width: 70px !important;
+        height: 70px !important;
+        border-radius: 50% !important;
+        padding: 0 !important;
+        transform: translateY(10px) scale(0.9);
+        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+        .playlist-card .play-btn svg,
+        .playlist-card .play-btn .mud-icon-root {
+            font-size: 2.5rem !important;
+        }
+
+    .playlist-card:hover .image-container img {
+        transform: scale(1.05);
+    }
+
+    .playlist-card:hover .overlay {
+        opacity: 1;
+    }
+
+    .playlist-card:hover .play-btn {
+        transform: translateY(0) scale(1);
+    }
+
+    .playlist-card:hover .action-btn {
+        opacity: 1;
+        transform: translateY(0);
+    }
+</style>

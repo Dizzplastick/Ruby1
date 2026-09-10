@@ -1,0 +1,104 @@
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    background-color: #121212;
+    color: white;
+}
+
+#app {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.validation-errors {
+    padding-left: 1.5rem; /* Сдвигает весь список правее, чтобы влезли точки */
+    margin-top: 0.5rem;
+    margin-bottom: 0;
+}
+
+
+.mud-tabs,
+.mud-tabs-toolbar,
+.mud-tabs-toolbar-wrapper,
+.mud-tabs-toolbar-inner {
+    background-color: transparent !important;
+    background-image: none !important;
+    box-shadow: none !important;
+}
+
+/* 2. Настройки самих кнопок (вкладок) */
+.mud-tab,
+.mud-tab.mud-tab-active {
+    text-transform: none !important;
+    font-size: 1rem !important;
+    letter-spacing: normal !important;
+    background-color: transparent !important;
+}
+
+/* --- Стили для CardCarousel --- */
+.custom-carousel-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.carousel-container {
+    display: flex;
+    overflow-x: auto;
+    scroll-behavior: smooth;
+    padding: 10px 0; /* Отступ, чтобы тени от карточек не обрезались */
+    scrollbar-width: none; /* Скрываем скроллбар в Firefox */
+    -ms-overflow-style: none; /* Скрываем в IE */
+    width: 100%;
+}
+
+    .carousel-container::-webkit-scrollbar {
+        display: none; /* Скрываем скроллбар в Chrome/Safari */
+    }
+
+/* Кнопки перелистывания */
+.carousel-arrow {
+    position: absolute;
+    z-index: 10;
+    background-color: rgba(30, 30, 30, 0.9) !important;
+    color: white !important;
+    backdrop-filter: blur(4px); /* Добавит красивое размытие фона под кнопкой в стиле Apple Music */
+    width: 75px !important;
+    height: 75px !important;
+}
+
+    .carousel-arrow svg,
+    .carousel-arrow .mud-icon-root {
+        font-size: 3rem !important;
+        width: 3rem !important;
+        height: 3rem !important;
+    }
+
+    .carousel-arrow:hover {
+        background-color: rgba(80, 80, 80, 1) !important;
+    }
+
+.left-arrow {
+    left: 10px; 
+}
+
+.right-arrow {
+    right: 10px; 
+}
+
+.carousel-item {
+    flex: 0 0 auto;
+    width: clamp(280px, 25vw, 450px);
+}
+
+@media (max-width: 800px) {
+   
+    .left-arrow {
+        left: 0px;
+    }
+
+    .right-arrow {
+        right: 0px;
+    }
+}

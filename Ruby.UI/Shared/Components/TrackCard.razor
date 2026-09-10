@@ -1,0 +1,205 @@
+@using Ruby.Shared.DTO.TrackDTO
+@using Ruby.Shared.DTO.LikesDTO
+@using Ruby.UI.Services
+@using Ruby.UI.Services.Api
+@using Ruby.UI.Shared.Components
+@inject AudioPlayerService Player
+@inject ITrackApi TrackApi
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+<MudCard Elevation="0" Class="track-card bg-transparent">
+    <div class="image-container rounded-lg">
+        <MudImage Src="@CoverUrl" Alt="Track Cover" ObjectFit="ObjectFit.Cover" Class="rounded-lg" />
+        
+        <div class="overlay rounded-lg d-flex align-center justify-center">
+            <MudIconButton Icon="@(IsCurrentTrackPlaying ? Icons.Material.Filled.Pause : Icons.Material.Filled.PlayArrow)"
+                           Color="Color.Primary"
+                           Variant="Variant.Filled"
+                           Size="Size.Large"
+                           Class="play-btn shadow-lg"
+                           OnClick="TogglePlayAsync" />
+
+            <div class="bottom-right-actions d-flex align-center" @onclick:stopPropagation="true">
+                @* Кнопка Лайка *@
+                <MudIconButton Icon="@(Track?.IsLikedByCurrentUser == true ? Icons.Material.Filled.Favorite : Icons.Material.Filled.FavoriteBorder)"
+                               Color="@(Track?.IsLikedByCurrentUser == true ? Color.Primary : Color.Inherit)"
+                               Size="Size.Large"
+                               Class="action-btn"
+                               OnClick="ToggleLikeAsync" />
+                
+                <MudMenu Icon="@Icons.Material.Filled.MoreVert"
+                         Size="Size.Large"
+                         Color="Color.Inherit"
+                         AnchorOrigin="Origin.BottomRight"
+                         TransformOrigin="Origin.TopRight"
+                         Class="action-btn">
+                    <MudMenuItem Icon="@Icons.Material.Filled.PlaylistAdd" OnClick="OpenAddToPlaylistDialog">
+                        <MudText Style="font-weight: 800;">Add to playlist</MudText>
+                    </MudMenuItem>
+                </MudMenu>
+            </div>
+        </div>
+    </div>
+
+    <MudCardContent Class="px-2 py-2" Style="overflow: hidden; width: 100%;">
+        <MudText Typo="Typo.subtitle1" Style="color: #e0e0e0; font-size: 1.1rem; font-weight: 800; display: block; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            @TrackTitle
+        </MudText>
+        <MudLink Href="@($"/profile/{Track.Author.Id}")"
+                 Typo="Typo.body2"
+                 Underline="Underline.Hover"
+                 Color="Color.Secondary"
+                 Style="color: gray; font-weight: 800; display: block; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            @AuthorName
+        </MudLink>
+    </MudCardContent>
+</MudCard>
+
+@code {
+    [Parameter] public TrackShortResponseDTO? Track { get; set; }
+    [Parameter] public List<TrackShortResponseDTO>? Queue { get; set; }
+    [Parameter] public int Index { get; set; }
+
+    private string CoverUrl => Track?.CoverImageUrl ?? "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=500&auto=format&fit=crop";
+    private string TrackTitle => Track?.Title ?? "Unknown Track Title";
+    private string AuthorName => Track?.Author?.Username ?? "Unknown Artist";
+
+    protected override void OnInitialized()
+    {
+        Player.OnStateChanged += SafeStateHasChanged;
+    }
+
+    private void SafeStateHasChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Player.OnStateChanged -= SafeStateHasChanged;
+    }
+
+    private bool IsCurrentTrackPlaying => Player.CurrentTrack?.Id == Track?.Id && Player.IsPlaying;
+
+    private async Task TogglePlayAsync()
+    {
+        if (Track == null) return;
+
+        if (Player.CurrentTrack?.Id == Track.Id)
+        {
+            await Player.TogglePlayPause();
+        }
+        else
+        {
+            if (Queue != null && Queue.Any())
+            {
+                await Player.PlayPlaylistAsync(Queue, Index);
+            }
+            else
+            {
+                await Player.PlayTrackAsync(Track);
+            }
+        }
+    }
+
+
+    private async Task ToggleLikeAsync()
+    {
+        if (Track == null) return;
+        try
+        {
+            await TrackApi.ToggleLikeAsync(new ToggleLikeRequestDTO { TrackId = Track.Id });
+            Track.IsLikedByCurrentUser = !Track.IsLikedByCurrentUser;
+            
+            if (Player.CurrentTrack?.Id == Track.Id)
+            {
+                Player.CurrentTrack.IsLikedByCurrentUser = Track.IsLikedByCurrentUser;
+            }
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Ошибка при лайке трека", Severity.Error);
+        }
+    }
+
+    private async Task OpenAddToPlaylistDialog()
+    {
+        if (Track == null) return;
+        var parameters = new DialogParameters<AddToPlaylistDialog> { { x => x.TrackId, Track.Id } };
+        var options = new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.ExtraSmall, FullWidth = true };
+        await DialogService.ShowAsync<AddToPlaylistDialog>("Добавить в плейлист", parameters, options);
+    }
+}
+
+<style>
+    .track-card .image-container {
+        position: relative;
+        width: 100%;
+        padding-top: 100%;
+        overflow: hidden;
+    }
+
+        .track-card .image-container img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.3s ease;
+        }
+
+    .track-card .overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+
+    .track-card .bottom-right-actions {
+        position: absolute;
+        bottom: 4px;
+        right: 4px;
+        color: white; 
+    }
+
+    .track-card .action-btn {
+        opacity: 0;
+        transform: translateY(5px);
+        transition: all 0.3s ease;
+    }
+
+    .track-card .play-btn {
+        transform: translateY(10px) scale(0.9);
+        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        width: 70px !important; 
+        height: 70px !important;
+        border-radius: 50% !important;
+    }
+
+        .track-card .play-btn svg,
+        .track-card .play-btn .mud-icon-root {
+            font-size: 2.5rem !important;
+        }
+
+    .track-card:hover .image-container img {
+        transform: scale(1.05);
+    }
+
+    .track-card:hover .overlay {
+        opacity: 1;
+    }
+
+    .track-card:hover .play-btn {
+        transform: translateY(0) scale(1);
+    }
+
+    .track-card:hover .action-btn {
+        opacity: 1;
+        transform: translateY(0);
+    }
+</style>

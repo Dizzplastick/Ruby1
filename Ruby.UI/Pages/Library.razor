@@ -1,0 +1,149 @@
+@page "/library"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using Ruby.Shared.DTO.TrackDTO
+@using Ruby.Shared.DTO.PlaylistDTO
+@using Ruby.UI.Services.Api
+@using Ruby.UI.Shared.Components
+@inject ITrackApi TrackApi
+@inject IPlaylistApi PlaylistApi
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.False" Class="mt-8 pb-16 px-4 px-md-8">
+    
+    @if (isLoading)
+    {
+        <div class="d-flex justify-center align-center" style="height: 40vh;">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+        </div>
+    }
+    else
+    {
+        <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pt-6" Color="Color.Primary" Class="library-tabs">
+            
+            <MudTabPanel Text="Playlists">
+                <MudText Typo="Typo.h4" Class="mb-6 font-weight-bold" Style="color: #e0e0e0; font-weight:800">
+                    Hear your own playlists and the playlists you’ve liked:
+                </MudText>
+                <div class="cards-grid">
+                    <div class="create-card d-flex flex-column align-center justify-center rounded-lg" @onclick="OpenCreatePlaylistDialog">
+                        <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Large" Color="Color.Primary" />
+                        <MudText Typo="Typo.h6" Class="mt-2 font-weight-bold" Style="color: white; font-weight:800">Create</MudText>
+                    </div>
+
+                    @if (myPlaylists.Any())
+                    {
+                        foreach (var playlist in myPlaylists)
+                        {
+                            <PlaylistCard Playlist="@playlist" />
+                        }
+                    }
+                </div>
+            </MudTabPanel>
+
+            <MudTabPanel Text="Liked">
+                <MudText Typo="Typo.h4" Class="mb-6 font-weight-bold" Style="color: #e0e0e0; font-weight:800">
+                    Hear the tracks you’ve liked:
+                </MudText>
+                <div class="cards-grid">
+                    @if (likedTracks.Any())
+                    {
+                        for (int i = 0; i < likedTracks.Count; i++)
+                        {
+                            var track = likedTracks[i];
+                            var index = i;
+                            <TrackCard Track="@track" Queue="@likedTracks" Index="@index" />
+                        }
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-column align-center justify-center" style="grid-column: 1 / -1; height: 30vh;">
+                            <MudIcon Icon="@Icons.Material.Filled.FavoriteBorder" Size="Size.Large" Style="color: gray;" />
+                            <MudText Typo="Typo.h6" Class="mt-4" Style="color: gray;">You don't have any favorite tracks yet</MudText>
+                        </div>
+                    }
+                </div>
+            </MudTabPanel>
+
+        </MudTabs>
+    }
+</MudContainer>
+
+@code {
+    private List<PlaylistShortDTO> myPlaylists = new();
+    private List<TrackShortResponseDTO> likedTracks = new();
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        try
+        {
+            likedTracks = await TrackApi.GetLikedTracksAsync(100);
+            
+            myPlaylists = await PlaylistApi.GetMyLibraryAsync(); 
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add("Unable to load the media library", Severity.Error);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task OpenCreatePlaylistDialog()
+    {
+        var options = new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true };
+        var dialog = await DialogService.ShowAsync<CreatePlaylistDialog>("", options);
+        var result = await dialog.Result;
+
+        if (!result.Canceled && result.Data is PlaylistResponseDTO newPlaylist)
+        {
+            await LoadDataAsync();
+        }
+    }
+}
+
+<style>
+    .cards-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(390px, 1fr));
+        gap: 48px;
+        padding-bottom: 2rem;
+    }
+
+    .create-card {
+        background-color: rgba(255, 255, 255, 0.05);
+        border: 2px dashed rgba(255, 255, 255, 0.2);
+        cursor: pointer;
+        transition: all 0.3s ease;
+        aspect-ratio: 1 / 1; 
+        height: auto;
+        align-self: start;
+    }
+
+    .create-card:hover {
+        background-color: rgba(255, 255, 255, 0.1);
+        border-color: var(--mud-palette-primary);
+        transform: scale(1.005);
+    }
+
+    .library-tabs .mud-tab {
+        font-size: 1.7rem !important; 
+        font-weight: 800 !important; 
+        letter-spacing: 0.9px; 
+        text-transform: none !important; 
+        min-height: 64px;
+        padding: 0 35px; 
+    }
+
+       
+</style>

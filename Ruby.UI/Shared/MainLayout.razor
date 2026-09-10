@@ -1,0 +1,236 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@using Ruby.Shared.DTO.UserDTO
+@using Ruby.UI.Services.Api
+@using Ruby.UI.Services.HttpHandlers
+@using Ruby.UI.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@inject NavigationManager NavigationManager
+@inject IUserApi UserApi
+@inject ITokenStorageService TokenStorage
+@inject AuthenticationStateProvider AuthStateProvider
+
+<MudThemeProvider Theme="@AppTheme.myTheme" IsDarkMode="true" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout Style="--mud-appbar-height: 100px;">
+    <MudAppBar Elevation="0" Fixed="true" Style="background-color: var(--mud-palette-background);">
+        
+        <a href="/main" class="logo-link">
+            <img src="_content/Ruby.UI/logo.png" alt="Ruby Logo" class="logo-img" />
+        </a>
+
+        <div class="custom-nav-tabs mr-6">
+            <NavLink href="/main" Match="NavLinkMatch.All" class="nav-tab">
+                Main
+            </NavLink>
+            <NavLink href="/library" class="nav-tab">
+                Library
+            </NavLink>
+        </div>
+
+        
+        <div class="flex-grow-1 mr-6 d-flex align-center">
+            <MudTextField @bind-Value="searchQuery"
+                          Placeholder="Search tracks, playlists..."
+                          Variant="Variant.Outlined"
+                          Margin="Margin.None"
+                          Style="background-color: rgba(255,255,255, 0.05); border-radius: 8px;"
+                          OnKeyDown="HandleSearchKeyDown"
+                          Immediate="true"
+                          Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.Search" />
+        </div>
+
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/upload" Class="mr-4" Size="Size.Large">
+            Upload
+        </MudButton>
+        
+        @if (isLoading)
+        {
+            <MudSkeleton SkeletonType="SkeletonType.Circle" Width="56px" Height="56px" />
+        }
+        else if (currentUser != null)
+        {
+            <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                <ActivatorContent>
+                    <div style="@($"width: 56px; height: 56px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: border-color 0.2s; background-image: url('{HeaderAvatarUrl}'); background-size: cover; background-position: center;")"
+                 class="hover-avatar-border"></div>
+                </ActivatorContent>
+                <ChildContent>
+                    <div class="px-4 py-3">
+                        <MudText Typo="Typo.body1" Class="font-weight-bold" Style="color: white;">@currentUser.Username</MudText>
+                        <MudText Typo="Typo.body2" Style="color: gray;">@currentUser.Email</MudText>
+                    </div>
+                    <MudDivider />
+                    <MudMenuItem Href="@($"/profile/{currentUser.Id}")" Icon="@Icons.Material.Filled.Person">Profile</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Filled.Logout" OnClick="Logout">Log out</MudMenuItem>
+                </ChildContent>
+            </MudMenu>
+        }
+        else
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Outlined" Href="/login">Log in</MudButton>
+        }
+        
+    </MudAppBar>
+
+    <MudMainContent Style="padding-bottom: 80px;">
+    <MudContainer MaxWidth="MaxWidth.False" Class="mt-8 px-8">
+        @Body
+    </MudContainer>
+</MudMainContent>
+
+
+    <MudAppBar Bottom="true" Fixed="true" Elevation="4" Class="pa-0" Style="height: 90px; background: #181818;">
+        <Ruby.UI.Shared.Components.AudioPlayer />
+    </MudAppBar>
+</MudLayout>
+
+@code {
+    private CurrentUserResponseDTO? currentUser;
+    private bool isLoading = true;
+    private long _cacheBuster = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+    private string searchQuery = "";
+
+    private string HeaderAvatarUrl => currentUser?.AvatarUrl == null
+        ? "https://via.placeholder.com/150?text=U"
+        : $"{currentUser.AvatarUrl}{(currentUser.AvatarUrl.Contains("?") ? "&" : "?")}t={_cacheBuster}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var customAuth = (CustomAuthStateProvider)AuthStateProvider;
+        customAuth.OnProfileChanged += UpdateProfileHandler;
+
+        await LoadUserDataAsync();
+    }
+
+    private void HandleSearchKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(searchQuery))
+        {
+            NavigationManager.NavigateTo($"/search/{Uri.EscapeDataString(searchQuery)}");
+        }
+    }
+
+    private async Task LoadUserDataAsync()
+    {
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            if (authState.User.Identity?.IsAuthenticated == true)
+            {
+                currentUser = await UserApi.GetCurrentUserProfileAsync();
+                
+                _cacheBuster = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Unable to load the header profile: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async void UpdateProfileHandler()
+    {
+        await LoadUserDataAsync();         
+        await InvokeAsync(StateHasChanged); 
+    }
+
+    public void Dispose()
+    {
+        var customAuth = (CustomAuthStateProvider)AuthStateProvider;
+        customAuth.OnProfileChanged -= UpdateProfileHandler;
+    }
+
+    private async Task Logout()
+    {
+        await TokenStorage.ClearTokensAsync();
+    
+        var customAuthStateProvider = (CustomAuthStateProvider)AuthStateProvider;
+        customAuthStateProvider.NotifyUserLoggedOut();
+    
+        NavigationManager.NavigateTo("/login", forceLoad: true);
+    }
+}
+
+<style>
+    .logo-link {
+        display: flex;
+        align-items: center;
+        margin-right: 0px;
+        margin-left: -16px;
+        text-decoration: none;
+    }
+
+    .logo-img {
+        height: 130px;
+        width: auto;
+        object-fit: contain;
+        transition: transform 0.3s ease, filter 0.3s ease;
+        filter: drop-shadow(0 0 15px rgba(155, 0, 0, 0.8)) brightness(1.2);
+    }
+
+    .logo-link:hover .logo-img {
+        transform: scale(1.1);
+        filter: drop-shadow(0 0 15px rgba(155, 0, 0, 1)) brightness(1.5);
+    }
+   
+    .custom-nav-tabs {
+        display: flex;
+        height: 100%;
+        align-items: center;
+    }
+
+        .custom-nav-tabs .nav-tab {
+            color: #ffffff;
+            text-decoration: none;
+            padding: 0 38px;
+            height: 80%;
+            display: flex;
+            align-items: center;
+            font-weight: 800;
+            font-size: 1.5rem;
+            position: relative;
+            transition: color 0.3s ease;
+        }
+
+            .custom-nav-tabs .nav-tab:hover {
+                color: #ff4d4d;
+            }
+
+            .custom-nav-tabs .nav-tab.active {
+                color: var(--mud-palette-primary);
+            }
+
+            .custom-nav-tabs .nav-tab::after {
+                content: '';
+                position: absolute;
+                bottom: 0;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 0;
+                height: 3px;
+                background-color: var(--mud-palette-primary);
+                border-radius: 3px 3px 0 0;
+                transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+
+            .custom-nav-tabs .nav-tab.active::after {
+                width: 100%;
+            }
+
+    .hover-avatar-border:hover {
+        border-color: var(--mud-palette-primary) !important;
+    }
+
+    .hover-avatar-border {
+        background-color: var(--mud-palette-action-default);
+    }
+</style>

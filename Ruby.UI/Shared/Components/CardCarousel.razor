@@ -1,0 +1,27 @@
+@inject IJSRuntime JS
+
+<div class="custom-carousel-wrapper">
+    <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft"
+                   Class="carousel-arrow left-arrow shadow-lg"
+                   OnClick="() => ScrollAsync(-1)" />
+
+    <div class="carousel-container gap-6" @ref="_carouselContainer">
+        @ChildContent
+    </div>
+
+    <MudIconButton Icon="@Icons.Material.Filled.ChevronRight"
+                   Class="carousel-arrow right-arrow shadow-lg"
+                   OnClick="() => ScrollAsync(1)" />
+</div>
+
+@code {
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    private ElementReference _carouselContainer;
+
+    private async Task ScrollAsync(int direction)
+    {
+        await JS.InvokeVoidAsync("scrollCarousel", _carouselContainer, direction);
+    }
+}

@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="docker-compose.yml" />
+    <File Path="Dockerfile" />
+  </Folder>
+  <Project Path="Ruby.BBL/Ruby.BBL.csproj" />
+  <Project Path="Ruby.Client/Ruby.Client.csproj" Id="bc9016ec-d9ce-4282-9351-0dbe8f7428a3" />
+  <Project Path="Ruby.DAL/Ruby.DAL.csproj" Id="188b437d-3e2c-4fc7-9fed-b650936653e0" />
+  <Project Path="Ruby.Server/Ruby.Server.csproj" />
+  <Project Path="Ruby.Shared/Ruby.Shared.csproj" />
+  <Project Path="Ruby.UI/Ruby.UI.csproj" Id="300a2340-48aa-4c3f-9853-c3aea6b74342" />
+  <Project Path="Ruby.Web/Ruby.Web.csproj" Id="1365f583-2085-425a-9b95-7accbf0efc30" />
+</Solution>

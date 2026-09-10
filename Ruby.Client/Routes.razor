@@ -1,0 +1,19 @@
+@using Ruby.UI.Shared
+<CascadingAuthenticationState>
+    <Router AppAssembly="@typeof(MainLayout).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(Ruby.UI.Shared.MainLayout)">
+                <NotAuthorized>
+                    <Ruby.UI.Shared.RedirectToLogin />
+                </NotAuthorized>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <PageTitle>Not found</PageTitle>
+            <LayoutView Layout="@typeof(Ruby.UI.Shared.MainLayout)">
+                <p role="alert">Sorry, there's nothing at this address.</p>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>

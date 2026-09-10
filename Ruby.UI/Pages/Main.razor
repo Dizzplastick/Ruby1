@@ -1,0 +1,122 @@
+@page "/main"
+@page "/"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using Ruby.UI.Shared.Components
+@using Ruby.UI.Services.Api
+@using Ruby.Shared.DTO.TrackDTO
+@using Ruby.Shared.DTO.PlaylistDTO
+@layout MainLayout
+@inject ITrackApi TrackApi
+@inject ISnackbar Snackbar
+@inject IPlaylistApi PlaylistApi
+@inject NavigationManager NavManager
+
+<MudContainer MaxWidth="MaxWidth.False" Class="pb-16 mt-4 px-4 px-md-8">
+    @if (isLoading)
+    {
+        <div class="d-flex justify-center align-center" style="height: 50vh;">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+        </div>
+    }
+    else
+    {
+        <MudText Typo="Typo.h4" Class="mb-4 font-weight-bold" Style="color: white; font-weight: 800;">Your likes</MudText>
+        @if (likedTracks.Any())
+        {
+            <CardCarousel>
+                @for (int i = 0; i < likedTracks.Count; i++)
+                {
+                    var track = likedTracks[i];
+                    var index = i; 
+                    <div class="carousel-item">
+                        <TrackCard Track="@track" Queue="@likedTracks" Index="@index" />
+                    </div>
+                }
+            </CardCarousel>
+        }
+        else
+        {
+            <MudPaper Class="pa-8 text-center" Elevation="0" Style="background: rgba(255,255,255,0.05); border-radius: 12px;">
+                <MudIcon Icon="@Icons.Material.Filled.FavoriteBorder" Size="Size.Large" Color="Color.Surface" />
+                <MudText Typo="Typo.body1" Class="mt-2" Style="color: gray;">You haven't liked any tracks yet.</MudText>
+            </MudPaper>
+        }
+
+        <MudText Typo="Typo.h4" Class="mb-4 mt-10 " Style="color: white; font-weight: 800;">Moods and Genres</MudText>
+        @if (genrePlaylists.Any())
+        {
+            <CardCarousel>
+                @foreach (var playlist in genrePlaylists)
+                {
+                    <div class="carousel-item">
+                        <PlaylistCard Playlist="@playlist" />
+                    </div>
+                }
+            </CardCarousel>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Style="color: gray;">Genres are currently unavailable.</MudText>
+        }
+
+        <MudText Typo="Typo.h4" Class="mb-4 mt-10" Style="color: white; font-weight: 800;">What's everyone listening to?</MudText>
+        @if (latestPlaylists.Any())
+        {
+            <CardCarousel>
+                @foreach (var playlist in latestPlaylists)
+                {
+                    <div class="carousel-item">
+                        <PlaylistCard Playlist="@playlist" />
+                    </div>
+                }
+            </CardCarousel>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Style="color: gray;">No public playlists available yet.</MudText>
+        }
+
+
+
+        <MudText Typo="Typo.h4" Class="mb-4 mt-10" Style="color: white; font-weight: 800;">New discoveries</MudText>
+        <div class="d-flex flex-column gap-1">
+            @for (int i = 0; i < latestTracks.Count; i++)
+            {
+                var track = latestTracks[i];
+                var index = i;
+                <TrackRow Track="@track" TrackNumber="@(index + 1)" Queue="@latestTracks" Index="@index" />
+            }
+        </div>
+    }
+    </MudContainer>
+
+@code {
+    private List<TrackShortResponseDTO> latestTracks = new();
+    private List<TrackShortResponseDTO> likedTracks = new();
+    private List<PlaylistShortDTO> latestPlaylists = new();
+    private List<PlaylistShortDTO> genrePlaylists = new();
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            likedTracks = await TrackApi.GetLikedTracksAsync(12);
+            latestTracks = await TrackApi.GetLatestTracksAsync(10);
+            latestPlaylists = await PlaylistApi.GetLatestPlaylistsAsync(12);
+            genrePlaylists = await PlaylistApi.GetGenrePlaylistsAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Unable to load tracks: {ex.Message}", Severity.Error);
+            Console.WriteLine(ex.ToString());
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}
+
+
